@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Simple Mafia Game</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; }
+  #log { white-space: pre-line; border: 1px solid #ccc; padding: 10px; height: 250px; overflow-y: auto; }
+  #actions { margin-top: 10px; }
+  select, button { margin-right: 5px; }
+</style>
+</head>
+<body>
+<h1>Simple Mafia Game</h1>
+<div id="log"></div>
+<div id="actions"></div>
+<script>
+(function(){
+  const players = [
+    {name: 'You', role: null, alive: true},
+    {name: 'Bot1', role: null, alive: true},
+    {name: 'Bot2', role: null, alive: true},
+    {name: 'Bot3', role: null, alive: true}
+  ];
+
+  const roles = ['Mafia', 'Doctor', 'Detective', 'Civilian'];
+  shuffle(roles);
+  for(let i=0;i<players.length;i++){ players[i].role = roles[i]; }
+
+  const logEl = document.getElementById('log');
+  const actionsEl = document.getElementById('actions');
+  const action = {};
+  let gameEnded = false;
+
+  log('Your role: ' + players[0].role);
+  nextNight();
+
+  function shuffle(arr){
+    for(let i=arr.length-1;i>0;i--){
+      const j = Math.floor(Math.random()* (i+1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+  }
+
+  function log(msg){
+    logEl.textContent += msg + '\n';
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function nextNight(){
+    log('\n--- Night ---');
+    showAction();
+  }
+
+  function showAction(){
+    actionsEl.innerHTML = '';
+    const you = players[0];
+    if(!you.alive){ setTimeout(resolveNight, 1000); return; }
+    if(you.role === 'Mafia'){
+      showSelect('Choose a player to kill:', getAlive(false), t => { action.kill = t; resolveNight(); });
+    } else if(you.role === 'Doctor'){
+      showSelect('Choose a player to save:', getAlive(true), t => { action.save = t; resolveNight(); });
+    } else if(you.role === 'Detective'){
+      showSelect('Investigate player:', getAlive(false), t => { action.investigate = t; resolveNight(); });
+    } else {
+      log('You sleep peacefully.');
+      setTimeout(resolveNight, 1000);
+    }
+  }
+
+  function getAlive(includeSelf){
+    return players.filter(p => p.alive && (includeSelf || p !== players[0]));
+  }
+
+  function showSelect(text, options, callback){
+    const label = document.createElement('div');
+    label.textContent = text;
+    const select = document.createElement('select');
+    options.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.name;
+      opt.textContent = p.name;
+      select.appendChild(opt);
+    });
+    const btn = document.createElement('button');
+    btn.textContent = 'OK';
+    btn.onclick = () => callback(players.find(pp => pp.name === select.value));
+    actionsEl.appendChild(label);
+    actionsEl.appendChild(select);
+    actionsEl.appendChild(btn);
+  }
+
+  function resolveNight(){
+    actionsEl.innerHTML = '';
+    // Bot actions
+    const mafia = players.find(p => p.role === 'Mafia' && p !== players[0]);
+    if(mafia && mafia.alive){
+      const targets = players.filter(p => p.alive && p !== mafia);
+      action.botKill = targets[Math.floor(Math.random()*targets.length)];
+    }
+    const doctor = players.find(p => p.role === 'Doctor' && p !== players[0]);
+    if(doctor && doctor.alive){
+      const targets = players.filter(p => p.alive);
+      action.botSave = targets[Math.floor(Math.random()*targets.length)];
+    }
+    const detective = players.find(p => p.role === 'Detective' && p !== players[0]);
+    if(detective && detective.alive){
+      const targets = players.filter(p => p.alive && p !== detective);
+      action.botInvestigate = targets[Math.floor(Math.random()*targets.length)];
+    }
+
+    let killTarget;
+    if(players[0].role === 'Mafia' && action.kill){ killTarget = action.kill; }
+    else if(mafia && action.botKill){ killTarget = action.botKill; }
+
+    let saveTarget;
+    if(players[0].role === 'Doctor' && action.save){ saveTarget = action.save; }
+    else if(doctor && action.botSave){ saveTarget = action.botSave; }
+
+    if(killTarget && killTarget === saveTarget){
+      log(killTarget.name + ' was targeted but saved!');
+    } else if(killTarget){
+      killTarget.alive = false;
+      log(killTarget.name + ' was killed during the night!');
+    }
+
+    if(players[0].role === 'Detective' && action.investigate){
+      log(action.investigate.name + ' is ' + (action.investigate.role === 'Mafia' ? 'Mafia' : 'not Mafia'));
+    }
+
+    action.kill = action.save = action.investigate = null;
+    action.botKill = action.botSave = action.botInvestigate = null;
+
+    if(!checkEnd()) nextDay();
+  }
+
+  function nextDay(){
+    log('\n--- Day ---');
+    voting();
+  }
+
+  function voting(){
+    actionsEl.innerHTML = '';
+    const alive = players.filter(p => p.alive);
+    if(players[0].alive){
+      showSelect('Vote to eliminate:', alive.filter(p => p !== players[0]), t => { action.vote = t; resolveVoting(); });
+    } else {
+      setTimeout(resolveVoting, 1000);
+    }
+  }
+
+  function resolveVoting(){
+    actionsEl.innerHTML = '';
+    const alive = players.filter(p => p.alive);
+    const bots = players.slice(1).filter(p => p.alive);
+
+    bots.forEach(bot => {
+      const others = alive.filter(p => p !== bot);
+      bot.vote = others[Math.floor(Math.random()*others.length)];
+    });
+    if(players[0].alive && action.vote){
+      players[0].vote = action.vote;
+    }
+
+    const tally = {};
+    players.forEach(p => {
+      if(p.alive && p.vote){ tally[p.vote.name] = (tally[p.vote.name] || 0) + 1; }
+    });
+    let max = 0, eliminated = null;
+    for(const name in tally){
+      if(tally[name] > max){
+        max = tally[name];
+        eliminated = players.find(p => p.name === name);
+      }
+    }
+    if(eliminated){
+      eliminated.alive = false;
+      log(eliminated.name + ' was eliminated by vote!');
+    }
+    players.forEach(p => p.vote = null);
+    action.vote = null;
+
+    if(!checkEnd()) nextNight();
+  }
+
+  function checkEnd(){
+    const mafiaAlive = players.some(p => p.role === 'Mafia' && p.alive);
+    const aliveCount = players.filter(p => p.alive).length;
+    if(!mafiaAlive){
+      log('\nTown wins!');
+      gameEnded = true;
+    } else if(aliveCount <= 2){
+      log('\nMafia wins!');
+      gameEnded = true;
+    }
+    if(gameEnded){ actionsEl.innerHTML = ''; }
+    return gameEnded;
+  }
+})();
+</script>
+</body>
+</html>
